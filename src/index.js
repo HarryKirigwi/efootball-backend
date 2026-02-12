@@ -1,4 +1,3 @@
-import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import authRoutes from './routes/auth.js';
@@ -9,7 +8,14 @@ import tournamentRoutes from './routes/tournament.js';
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-app.use(cors({ origin: true, credentials: true }));
+// In development we load env vars from .env; in production (Railway) env vars are injected.
+if (process.env.NODE_ENV !== 'production') {
+  await import('dotenv/config');
+}
+
+// Allow configurable CORS origin for production; default is permissive for local dev.
+const corsOrigin = process.env.CORS_ORIGIN || true;
+app.use(cors({ origin: corsOrigin, credentials: true }));
 app.use(express.json());
 
 app.use('/api/auth', authRoutes);

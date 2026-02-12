@@ -1,21 +1,41 @@
 import 'dotenv/config';
-import bcrypt from 'bcrypt';
+import fs from 'fs/promises';
+import path from 'path';
 import mysql from 'mysql2/promise';
 
-const pool = mysql.createPool(process.env.DATABASE_URL || { host: 'localhost', user: process.env.DB_USER || 'root', password: process.env.DB_PASSWORD || '', database: process.env.DB_NAME || 'efootball' });
+const __dirname = path.dirname(new URL(import.meta.url).pathname);
 
-const SUPER_ADMIN_PASSWORD = process.env.SEED_SUPER_ADMIN_PASSWORD || 'SuperAdmin123!';
-
-async function seed() {
-  const passwordHash = await bcrypt.hash(SUPER_ADMIN_PASSWORD, 10);
-  await pool.execute(
-    `INSERT INTO users (id, full_name, efootball_username, password_hash, role, created_at, updated_at)
-     VALUES (UUID(), ?, ?, ?, 'super_admin', NOW(), NOW())
-     ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash), role = 'super_admin'`,
-    ['Super Admin', 'superadmin', passwordHash]
-  );
-  console.log('Super admin seeded. Username: superadmin, Password:', SUPER_ADMIN_PASSWORD);
-  await pool.end();
+async function loadSql(file) {
+  const fullPath = path.join(__dirname, file);
+  return fs.readFile(fullPath, 'utf8');
 }
 
-seed().catch((e) => { console.error(e); process.exit(1); });
+async function seed() {
+  const url = process.env.DATABASE_URL;
+  const pool = url && url.startsWith('mysql')
+    ? mysql.createPool(url)
+    : mysql.createPool({
+        host: process.env.DB_HOST || 'localhost',
+        user: process.env.DB_USER || 'root',
+        password: process.env.DB_PASSWORD || '',
+        port: process.env.DB_PORT || 3306,
+        database: process.env.DB_NAME || 'efootball',
+      });
+
+  try {
+    const schemaSql = await loadSql('001_initial.sql');
+    await pool.query(schemaSql);
+
+    const superAdminSql = await loadSql('seed_super_admin.sql');
+    await pool.query(superAdminSql);
+
+    console.log('Database schema and super admin seeded successfully.');
+  } finally {
+    await pool.end();
+  }
+}
+
+seed().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

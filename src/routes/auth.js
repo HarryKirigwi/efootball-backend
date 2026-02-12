@@ -8,9 +8,10 @@ const router = Router();
 
 router.post('/register', async (req, res, next) => {
   try {
-    const { full_name, efootball_username, password, mpesa_transaction_code } = req.body;
-    if (!full_name?.trim() || !efootball_username?.trim() || !password || !mpesa_transaction_code?.trim()) {
-      return res.status(400).json({ error: 'full_name, efootball_username, password and mpesa_transaction_code are required' });
+    const { full_name, reg_no, efootball_username, password, mpesa_transaction_code } = req.body;
+
+    if (!full_name?.trim() || !reg_no?.trim() || !efootball_username?.trim() || !password || !mpesa_transaction_code?.trim()) {
+      return res.status(400).json({ error: 'full_name, reg_no, efootball_username, password and mpesa_transaction_code are required' });
     }
     if (password.length < 6) {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
@@ -21,12 +22,20 @@ router.post('/register', async (req, res, next) => {
     }
     const passwordHash = await bcrypt.hash(password, 10);
     const userId = crypto.randomUUID();
+
     await query(
-      `INSERT INTO users (id, full_name, efootball_username, password_hash, role, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'participant', NOW(), NOW())`,
-      [userId, full_name.trim(), efootball_username.trim(), passwordHash]
+      `INSERT INTO users (id, full_name, reg_no, efootball_username, password_hash, role, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'participant', NOW(), NOW())`,
+      [userId, full_name.trim(), reg_no.trim(), efootball_username.trim(), passwordHash]
     );
-    const user = { id: userId, full_name: full_name.trim(), efootball_username: efootball_username.trim(), role: 'participant', avatar_url: null };
+    const user = {
+      id: userId,
+      full_name: full_name.trim(),
+      reg_no: reg_no.trim(),
+      efootball_username: efootball_username.trim(),
+      role: 'participant',
+      avatar_url: null,
+    };
     await query(
       `INSERT INTO payments (user_id, amount, mpesa_transaction_code, status, created_at)
        VALUES (?, 90, ?, 'pending', NOW())`,
