@@ -8,11 +8,41 @@ const router = Router();
 
 router.get('/me', requireAuth, async (req, res, next) => {
   try {
+    // #region agent log
+    fetch('http://127.0.0.1:7244/ingest/1357bc2d-b052-460a-9bba-5b23097c9172', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        runId: 'profile-pre-fix',
+        hypothesisId: 'H5',
+        location: 'backend/src/routes/users.js:/me',
+        message: 'Handling /users/me request',
+        data: { userId: req.user.id, role: req.user.role },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+
     const participantResult = await query(
       'SELECT id, full_name, efootball_username, avg_pass_accuracy, avg_possession, eliminated FROM participants WHERE user_id = ?',
       [req.user.id]
     );
     const participant = participantResult.rows[0] || null;
+
+    // #region agent log
+    fetch('http://127.0.0.1:7244/ingest/1357bc2d-b052-460a-9bba-5b23097c9172', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        runId: 'profile-pre-fix',
+        hypothesisId: 'H6',
+        location: 'backend/src/routes/users.js:/me',
+        message: 'Participant lookup result for /users/me',
+        data: { userId: req.user.id, participantFound: !!participant },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     res.json({
       user: req.user,
       participant: participant ? { ...participant, verified: true } : null,

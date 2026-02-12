@@ -14,7 +14,7 @@ VALUES (
   NOW(),
   NOW()
 )
-ON CONFLICT DO NOTHING;
+ON DUPLICATE KEY UPDATE id = id;
 
 -- If you need to generate a real hash, run in Node:
 -- node -e "const bcrypt=require('bcrypt'); console.log(bcrypt.hashSync('SuperAdmin123!',10));"
