@@ -6,15 +6,27 @@ import { signToken } from '../middleware/auth.js';
 
 const router = Router();
 
+function normalizePhone(val) {
+  const digits = val.replace(/\D/g, '');
+  if (digits.startsWith('254') && digits.length === 12) return digits;
+  if (digits.startsWith('0') && digits.length === 10) return '254' + digits.slice(1);
+  if (digits.length === 9 && /^[17]/.test(digits)) return '254' + digits;
+  return null;
+}
+
 router.post('/register', async (req, res, next) => {
   try {
-    const { full_name, reg_no, efootball_username, password, mpesa_transaction_code } = req.body;
+    const { full_name, reg_no, efootball_username, password, phone_number } = req.body;
 
-    if (!full_name?.trim() || !reg_no?.trim() || !efootball_username?.trim() || !password || !mpesa_transaction_code?.trim()) {
-      return res.status(400).json({ error: 'full_name, reg_no, efootball_username, password and mpesa_transaction_code are required' });
+    if (!full_name?.trim() || !reg_no?.trim() || !efootball_username?.trim() || !password || !phone_number?.trim()) {
+      return res.status(400).json({ error: 'full_name, reg_no, efootball_username, password and phone_number are required' });
     }
     if (password.length < 6) {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+    const phone = normalizePhone(phone_number.trim());
+    if (!phone) {
+      return res.status(400).json({ error: 'Enter a valid Kenyan phone number (e.g. 07XXXXXXXX or 2547XXXXXXXX)' });
     }
     const existing = await query('SELECT id FROM users WHERE efootball_username = ?', [efootball_username.trim()]);
     if (existing.rows.length > 0) {
@@ -24,9 +36,9 @@ router.post('/register', async (req, res, next) => {
     const userId = crypto.randomUUID();
 
     await query(
-      `INSERT INTO users (id, full_name, reg_no, efootball_username, password_hash, role, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'participant', NOW(), NOW())`,
-      [userId, full_name.trim(), reg_no.trim(), efootball_username.trim(), passwordHash]
+      `INSERT INTO users (id, full_name, reg_no, efootball_username, password_hash, role, phone_number, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'participant', ?, NOW(), NOW())`,
+      [userId, full_name.trim(), reg_no.trim(), efootball_username.trim(), passwordHash, phone]
     );
     const user = {
       id: userId,
@@ -38,15 +50,15 @@ router.post('/register', async (req, res, next) => {
     };
     await query(
       `INSERT INTO payments (user_id, amount, mpesa_transaction_code, status, created_at)
-       VALUES (?, 90, ?, 'pending', NOW())`,
-      [userId, mpesa_transaction_code.trim()]
+       VALUES (?, 90, NULL, 'pending', NOW())`,
+      [userId]
     );
     const token = signToken({ userId: user.id, role: user.role });
     res.status(201).json({
       user: { id: user.id, full_name: user.full_name, efootball_username: user.efootball_username, role: user.role, avatar_url: user.avatar_url },
       token,
       verified: false,
-      message: 'Registration successful. Your payment is pending verification. You are not yet on the participants list.',
+      message: 'Registration successful. Your spot is reserved. You will be added to the participants list after verification.',
     });
   } catch (e) {
     next(e);

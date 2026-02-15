@@ -8,7 +8,7 @@ router.get('/pending', requireAuth, requireRole('super_admin'), async (req, res,
   try {
     const result = await query(
       `SELECT p.id, p.user_id, p.amount, p.mpesa_transaction_code, p.status, p.created_at,
-              u.full_name, u.reg_no, u.efootball_username
+              u.full_name, u.reg_no, u.efootball_username, u.phone_number
        FROM payments p
        JOIN users u ON u.id = p.user_id
        WHERE p.status = 'pending'

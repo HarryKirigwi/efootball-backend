@@ -58,13 +58,10 @@ async function seed(runId = 'pre-fix') {
         });
 
   try {
-    const schemaSql = await loadSql(path.join('migrations', '001_initial.sql'));
-    await runStatements(pool, schemaSql, runId, 'H1', 'schema');
+    const migration002 = await loadSql(path.join('migrations', '002_reservation_phone.sql'));
+    await runStatements(pool, migration002, runId, 'H2', 'migration_002');
 
-    const superAdminSql = await loadSql('seed_super_admin.sql');
-    await runStatements(pool, superAdminSql, runId, 'H2', 'super_admin');
-
-    console.log('Database schema and super admin seeded successfully.');
+    console.log('Database migrations ran successfully.');
   } finally {
     await pool.end();
   }
