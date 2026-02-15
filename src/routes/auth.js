@@ -58,7 +58,7 @@ router.post('/register', async (req, res, next) => {
       user: { id: user.id, full_name: user.full_name, efootball_username: user.efootball_username, role: user.role, avatar_url: user.avatar_url },
       token,
       verified: false,
-      message: 'Registration successful. Your spot is reserved. You will be added to the participants list after verification.',
+      message: 'You have been added to the waiting list. You will be paired once the tournament starts.',
     });
   } catch (e) {
     next(e);
