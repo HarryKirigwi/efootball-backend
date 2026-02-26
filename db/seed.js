@@ -24,23 +24,16 @@ async function runStatements(pool, sql, runId, hypothesisId, label) {
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
 
-  // #region agent log
-  fetch('http://127.0.0.1:7244/ingest/1357bc2d-b052-460a-9bba-5b23097c9172', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      runId,
-      hypothesisId,
-      location: 'db/seed.js:runStatements',
-      message: `Executing SQL statements for ${label}`,
-      data: { count: statements.length },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
-
   for (const stmt of statements) {
-    await pool.query(stmt);
+    try {
+      await pool.query(stmt);
+    } catch (err) {
+      // Ignore "duplicate column" / "duplicate key" errors so migrations are idempotent across environments.
+      if (err && (err.code === 'ER_DUP_FIELDNAME' || err.code === 'ER_DUP_KEYNAME')) {
+        continue;
+      }
+      throw err;
+    }
   }
 }
 
@@ -58,10 +51,20 @@ async function seed(runId = 'pre-fix') {
         });
 
   try {
-    const migration002 = await loadSql(path.join('migrations', '002_reservation_phone.sql'));
-    await runStatements(pool, migration002, runId, 'H2', 'migration_002');
+    // Run only these additive migrations (003 fixtures, 003 matches, 005, 006). No 001/002; no super admin seed.
+    const migration003Fixtures = await loadSql(path.join('migrations', '003_fixtures_rounds.sql'));
+    await runStatements(pool, migration003Fixtures, runId, 'H3', 'migration_003_fixtures_rounds');
 
-    console.log('Database migrations ran successfully.');
+    const migration003Matches = await loadSql(path.join('migrations', '003_matches_rounds_overhaul.sql'));
+    await runStatements(pool, migration003Matches, runId, 'H3M', 'migration_003_matches_rounds_overhaul');
+
+    const migration005 = await loadSql(path.join('migrations', '005_add_updated_at_to_rounds.sql'));
+    await runStatements(pool, migration005, runId, 'H5', 'migration_005_add_updated_at_to_rounds');
+
+    const migration006 = await loadSql(path.join('migrations', '006_add_suggestion_seed.sql'));
+    await runStatements(pool, migration006, runId, 'H6', 'migration_006_add_suggestion_seed');
+
+    console.log('Migrations (003 fixtures, 003 matches, 005, 006) ran successfully.');
   } finally {
     await pool.end();
   }

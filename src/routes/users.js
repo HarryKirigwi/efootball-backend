@@ -6,6 +6,15 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 
 const router = Router();
 
+function normalizePhone(val) {
+  if (!val) return null;
+  const digits = val.replace(/\D/g, '');
+  if (digits.startsWith('254') && digits.length === 12) return digits;
+  if (digits.startsWith('0') && digits.length === 10) return '254' + digits.slice(1);
+  if (digits.length === 9 && /^[17]/.test(digits)) return '254' + digits;
+  return null;
+}
+
 router.get('/me', requireAuth, async (req, res, next) => {
   try {
     const participantResult = await query(
@@ -88,21 +97,217 @@ router.post('/admins', requireAuth, requireRole('super_admin'), async (req, res,
 router.get('/list', requireAuth, requireRole('super_admin', 'admin'), async (req, res, next) => {
   try {
     const { role } = req.query;
-    let q = 'SELECT id, full_name, efootball_username, role, avatar_url, created_at FROM users WHERE 1=1';
+    let q =
+      'SELECT u.id, u.full_name, u.efootball_username, u.role, u.avatar_url, u.created_at, p.id AS participant_id ' +
+      'FROM users u ' +
+      'LEFT JOIN participants p ON p.user_id = u.id ' +
+      'WHERE 1=1';
     const params = [];
     if (role) {
       params.push(role);
-      q += ' AND role = ?';
+      q += ' AND u.role = ?';
     }
-    q += ' ORDER BY created_at DESC';
+    q += ' ORDER BY u.created_at DESC';
     const result = await query(q, params);
-    const withParticipants = await Promise.all(
-      result.rows.map(async (u) => {
-        const p = await query('SELECT id FROM participants WHERE user_id = ?', [u.id]);
-        return { ...u, is_participant: p.rows.length > 0 };
-      })
-    );
+    const withParticipants = result.rows.map((u) => ({
+      ...u,
+      is_participant: !!u.participant_id,
+    }));
     res.json({ users: withParticipants });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/:id', requireAuth, requireRole('super_admin'), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const result = await query(
+      `SELECT 
+         u.id,
+         u.full_name,
+         u.reg_no,
+         u.efootball_username,
+         u.role,
+         u.avatar_url,
+         u.phone_number,
+         u.created_at,
+         u.updated_at,
+         p.id AS participant_id,
+         p.full_name AS participant_full_name,
+         p.efootball_username AS participant_username,
+         p.avg_pass_accuracy,
+         p.avg_possession,
+         p.eliminated
+       FROM users u
+       LEFT JOIN participants p ON p.user_id = u.id
+       WHERE u.id = ?
+      `,
+      [id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const row = result.rows[0];
+    const user = {
+      id: row.id,
+      full_name: row.full_name,
+      reg_no: row.reg_no,
+      efootball_username: row.efootball_username,
+      role: row.role,
+      avatar_url: row.avatar_url,
+      phone_number: row.phone_number,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      is_participant: !!row.participant_id,
+    };
+    const participant = row.participant_id
+      ? {
+          id: row.participant_id,
+          full_name: row.participant_full_name,
+          efootball_username: row.participant_username,
+          avg_pass_accuracy: row.avg_pass_accuracy,
+          avg_possession: row.avg_possession,
+          eliminated: row.eliminated,
+        }
+      : null;
+
+    res.json({ user, participant });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.patch('/:id', requireAuth, requireRole('super_admin'), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const {
+      full_name,
+      efootball_username,
+      reg_no,
+      phone_number,
+      is_participant,
+    } = req.body;
+
+    const existingResult = await query(
+      'SELECT id, full_name, reg_no, efootball_username, role, avatar_url, phone_number FROM users WHERE id = ?',
+      [id]
+    );
+    if (existingResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const updates = [];
+    const params = [];
+
+    if (full_name !== undefined) {
+      if (!full_name.trim()) {
+        return res.status(400).json({ error: 'full_name cannot be empty' });
+      }
+      updates.push('full_name = ?');
+      params.push(full_name.trim());
+    }
+
+    if (efootball_username !== undefined) {
+      if (!efootball_username.trim()) {
+        return res.status(400).json({ error: 'efootball_username cannot be empty' });
+      }
+      updates.push('efootball_username = ?');
+      params.push(efootball_username.trim());
+    }
+
+    if (reg_no !== undefined) {
+      if (!reg_no.trim()) {
+        return res.status(400).json({ error: 'reg_no cannot be empty' });
+      }
+      updates.push('reg_no = ?');
+      params.push(reg_no.trim());
+    }
+
+    if (phone_number !== undefined) {
+      const normalized = normalizePhone(String(phone_number).trim());
+      if (!normalized) {
+        return res.status(400).json({ error: 'Enter a valid Kenyan phone number (e.g. 07XXXXXXXX or 2547XXXXXXXX)' });
+      }
+      updates.push('phone_number = ?');
+      params.push(normalized);
+    }
+
+    if (updates.length > 0) {
+      updates.push('updated_at = NOW()');
+      await query(
+        `UPDATE users SET ${updates.join(', ')} WHERE id = ?`,
+        [...params, id]
+      );
+    }
+
+    if (typeof is_participant === 'boolean') {
+      if (is_participant) {
+        const userResult = await query(
+          'SELECT full_name, efootball_username FROM users WHERE id = ?',
+          [id]
+        );
+        const user = userResult.rows[0];
+        await query(
+          `INSERT IGNORE INTO participants (user_id, full_name, efootball_username, eliminated, created_at)
+           VALUES (?, ?, ?, 0, NOW())`,
+          [id, user.full_name, user.efootball_username]
+        );
+      } else {
+        await query('DELETE FROM participants WHERE user_id = ?', [id]);
+      }
+    }
+
+    // Return the updated view of the user
+    const result = await query(
+      `SELECT 
+         u.id,
+         u.full_name,
+         u.reg_no,
+         u.efootball_username,
+         u.role,
+         u.avatar_url,
+         u.phone_number,
+         u.created_at,
+         u.updated_at,
+         p.id AS participant_id,
+         p.full_name AS participant_full_name,
+         p.efootball_username AS participant_username,
+         p.avg_pass_accuracy,
+         p.avg_possession,
+         p.eliminated
+       FROM users u
+       LEFT JOIN participants p ON p.user_id = u.id
+       WHERE u.id = ?
+      `,
+      [id]
+    );
+
+    const row = result.rows[0];
+    const user = {
+      id: row.id,
+      full_name: row.full_name,
+      reg_no: row.reg_no,
+      efootball_username: row.efootball_username,
+      role: row.role,
+      avatar_url: row.avatar_url,
+      phone_number: row.phone_number,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      is_participant: !!row.participant_id,
+    };
+    const participant = row.participant_id
+      ? {
+          id: row.participant_id,
+          full_name: row.participant_full_name,
+          efootball_username: row.participant_username,
+          avg_pass_accuracy: row.avg_pass_accuracy,
+          avg_possession: row.avg_possession,
+          eliminated: row.eliminated,
+        }
+      : null;
+
+    res.json({ user, participant });
   } catch (e) {
     next(e);
   }
